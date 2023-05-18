@@ -9,7 +9,7 @@
 #include "v4l2.h"
 
 static const char *dri_path = "/dev/dri/card0";
-static const char *v4l2_path = "/dev/video0";
+static char v4l2_path[128];
 static int next_buffer_index = -1;
 static int curr_buffer_index = 0;
 
@@ -81,7 +81,7 @@ static void mainloop(int v4l2_fd, int drm_fd, struct drm_dev_t *dev)
 	}
 }
 
-int main()
+int main(int argc, char *argv[])
 {
 	struct drm_dev_t *dev_head, *dev;
 	int v4l2_fd, drm_fd;
@@ -94,6 +94,14 @@ int main()
 		fprintf(stderr, "available drm_dev not found\n");
 		return EXIT_FAILURE;
 	}
+
+	if(argc >= 2) {
+		strcpy(v4l2_path, argv[1]);
+	} else {
+		strcpy(v4l2_path, "/dev/video22");
+	}
+
+	printf("v4l2_path=%s\n", v4l2_path);
 
 	dev = dev_head;
 	drm_setup_fb(drm_fd, dev, 0, 1);

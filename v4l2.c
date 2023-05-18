@@ -122,7 +122,7 @@ void v4l2_init_dmabuf(int fd, int *dmabufs, int count)
 	CLEAR(req);
 
 	req.count = count;
-	req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 	req.memory = V4L2_MEMORY_DMABUF;
 	memory_type = req.memory;
 
@@ -152,7 +152,7 @@ void v4l2_init_dmabuf(int fd, int *dmabufs, int count)
 
 		CLEAR(buf);
 
-		buf.type        = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+		buf.type        = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 		buf.memory      = V4L2_MEMORY_DMABUF;
 		buf.index       = n_buffers;
 
@@ -239,7 +239,7 @@ void v4l2_init(int fd, int width, int height, int pitch)
 
 	if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) {
 		fprintf(stderr, "not a video capture device\n");
-		exit(EXIT_FAILURE);
+//		exit(EXIT_FAILURE);
 	}
 
 	if (!(cap.capabilities & V4L2_CAP_STREAMING)) {
@@ -276,7 +276,7 @@ void v4l2_init(int fd, int width, int height, int pitch)
 	fmt.fmt.pix.bytesperline = pitch;
 
 	if (-1 == xioctl(fd, VIDIOC_S_FMT, &fmt))
-		errno_print("VIDIOC_S_FMT");
+//		errno_print("VIDIOC_S_FMT");
 
 	printf("v4l2 negotiated format: ");
 	printf("size = %dx%d, ", fmt.fmt.pix.width, fmt.fmt.pix.height);
