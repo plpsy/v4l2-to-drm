@@ -26,22 +26,36 @@ static enum v4l2_memory memory_type;
 void v4l2_queue_buffer(int fd, int index, int dmabuf_fd)
 {
 	struct v4l2_buffer buf;
+	struct v4l2_plane plane;
 
 	CLEAR(buf);
-	buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	CLEAR(plane);
+	plane.m.fd = dmabuf_fd;
+
+	buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 	buf.memory = memory_type;
 	buf.index = index;
-	if (memory_type == V4L2_MEMORY_DMABUF)
-		buf.m.fd = dmabuf_fd;
+	if (memory_type == V4L2_MEMORY_DMABUF) {
+		// buf.m.fd = dmabuf_fd;
+		buf.length = 1;
+		buf.m.planes = &plane;
+	}
+
 	if (-1 == xioctl(fd, VIDIOC_QBUF, &buf))
 		errno_print("VIDIOC_QBUF");
 }
 
 int v4l2_dequeue_buffer(int fd, struct v4l2_buffer *buf)
 {	
-	PCLEAR(buf);
+	struct v4l2_plane plane;
 
-	buf->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	PCLEAR(buf);
+	PCLEAR(&plane);
+
+	buf->length = 1;
+	buf->m.planes = &plane;
+
+	buf->type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 	buf->memory = memory_type;
 
 	if (-1 == xioctl(fd, VIDIOC_DQBUF, buf)) {
@@ -64,7 +78,7 @@ void v4l2_stop_capturing(int fd)
 {
 	enum v4l2_buf_type type;
 
-	type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 	if (-1 == xioctl(fd, VIDIOC_STREAMOFF, &type))
 		errno_print("VIDIOC_STREAMOFF");
 }
@@ -78,7 +92,7 @@ void v4l2_start_capturing_dmabuf(int fd)
 	for (i = 1; i < n_buffers; ++i)
 		v4l2_queue_buffer(fd, i, buffers[i].dmabuf_fd);
 
-	type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 	if (-1 == xioctl(fd, VIDIOC_STREAMON, &type))
 		errno_print("VIDIOC_STREAMON");
 }
@@ -149,12 +163,18 @@ void v4l2_init_dmabuf(int fd, int *dmabufs, int count)
 
 	for (n_buffers = 0; n_buffers < req.count; ++n_buffers) {
 		struct v4l2_buffer buf;
+		struct v4l2_plane plane;
 
 		CLEAR(buf);
+		CLEAR(plane);
+
 
 		buf.type        = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 		buf.memory      = V4L2_MEMORY_DMABUF;
 		buf.index       = n_buffers;
+
+		buf.length		= 1;
+		buf.m.planes	= &plane;
 
 		if (-1 == xioctl(fd, VIDIOC_QUERYBUF, &buf))
 			errno_print("VIDIOC_QUERYBUF");
@@ -223,10 +243,7 @@ void v4l2_init_mmap(int fd, int count)
 void v4l2_init(int fd, int width, int height, int pitch)
 {
 	struct v4l2_capability cap;
-	struct v4l2_cropcap cropcap;
-	struct v4l2_crop crop;
 	struct v4l2_format fmt;
-	unsigned int min;
 
 	if (-1 == xioctl(fd, VIDIOC_QUERYCAP, &cap)) {
 		if (EINVAL == errno) {
@@ -237,9 +254,9 @@ void v4l2_init(int fd, int width, int height, int pitch)
 		}
 	}
 
-	if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) {
+	if (!(cap.capabilities & (V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_VIDEO_CAPTURE_MPLANE))) {
 		fprintf(stderr, "not a video capture device\n");
-//		exit(EXIT_FAILURE);
+		exit(EXIT_FAILURE);
 	}
 
 	if (!(cap.capabilities & V4L2_CAP_STREAMING)) {
@@ -247,50 +264,36 @@ void v4l2_init(int fd, int width, int height, int pitch)
 		exit(EXIT_FAILURE);
 	}
 
-	CLEAR(cropcap);
-	cropcap.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+	if (-1 == xioctl(fd, VIDIOC_G_FMT, &fmt))
+		errno_print("VIDIOC_G_FMT1");
 
-	if (0 == xioctl(fd, VIDIOC_CROPCAP, &cropcap)) {
-		crop.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-		crop.c = cropcap.defrect; /* reset to default */
+	printf("fmt.fmt.pix_mp.num_planes=%d\n", fmt.fmt.pix_mp.num_planes);
+	char *p = (char*)&fmt.fmt.pix_mp.pixelformat;
+	printf("before: %c%c%c%c\n", *p, *(p+1), *(p+2), *(p+3));
 
-		if (-1 == xioctl(fd, VIDIOC_S_CROP, &crop)) {
-			switch (errno) {
-				case EINVAL:
-					/* Cropping not supported. */
-					break;
-				default:
-					/* Errors ignored. */
-					break;
-			}
-		}
-	}
+	fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 
-	CLEAR(fmt);
-	fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	fmt.fmt.pix.width       = width;
-	fmt.fmt.pix.height      = height;
-	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_ABGR32;
-	fmt.fmt.pix.field       = V4L2_FIELD_NONE;
-	fmt.fmt.pix.colorspace  = V4L2_COLORSPACE_RAW;
-	fmt.fmt.pix.bytesperline = pitch;
+	fmt.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_UYVY;
+	fmt.fmt.pix_mp.field       = V4L2_FIELD_NONE;
+	fmt.fmt.pix_mp.colorspace  = V4L2_COLORSPACE_RAW;
+
 
 	if (-1 == xioctl(fd, VIDIOC_S_FMT, &fmt))
-//		errno_print("VIDIOC_S_FMT");
+		errno_print("VIDIOC_S_FMT");
+
+	p = (char*)&fmt.fmt.pix_mp.pixelformat;
+	printf("after: %c%c%c%c\n", *p, *(p+1), *(p+2), *(p+3));
+
+	if (-1 == xioctl(fd, VIDIOC_G_FMT, &fmt))
+		errno_print("VIDIOC_G_FMT2");
 
 	printf("v4l2 negotiated format: ");
-	printf("size = %dx%d, ", fmt.fmt.pix.width, fmt.fmt.pix.height);
-	printf("pitch = %d bytes\n", fmt.fmt.pix.bytesperline);
+	printf("size = %dx%d, ", fmt.fmt.pix_mp.width, fmt.fmt.pix_mp.height);
+	printf("pitch = %d bytes\n", fmt.fmt.pix_mp.plane_fmt[0].bytesperline);
 
 	/* Note VIDIOC_S_FMT may change width and height. */
 
-	/* Buggy driver paranoia. */
-	min = fmt.fmt.pix.width * 2;
-	if (fmt.fmt.pix.bytesperline < min)
-		fmt.fmt.pix.bytesperline = min;
-	min = fmt.fmt.pix.bytesperline * fmt.fmt.pix.height;
-	if (fmt.fmt.pix.sizeimage < min)
-		fmt.fmt.pix.sizeimage = min;
 }
 
 int v4l2_open(const char *dev_name)

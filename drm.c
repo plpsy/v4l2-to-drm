@@ -11,6 +11,9 @@
 #include <unistd.h>
 #include <libdrm/drm.h>
 #include "drm.h"
+#include <xf86drm.h>
+#include <xf86drmMode.h>
+#include <drm_fourcc.h>
 
 struct color_rgb32 {
 	uint32_t value;
@@ -220,19 +223,35 @@ void drm_setup_dummy(int fd, struct drm_dev_t *dev, int map, int export)
 void drm_setup_fb(int fd, struct drm_dev_t *dev, int map, int export)
 {
 	int i;
+	int ret;
+
+	uint32_t handles[4] = {0}, pitches[4] = {0}, offsets[4] = {0};
 
 	for (i = 0; i < BUFCOUNT; i++) {
-		int ret;
 
 		drm_setup_buffer(fd, dev, dev->width, dev->height,
 				 &dev->bufs[i], map, export);
 
+		handles[0] = dev->bufs[i].bo_handle;
+		pitches[0] = 3840;	
+		offsets[0] = 0;
+		#if 0
 		ret = drmModeAddFB(fd, dev->width, dev->height,
 			DEPTH, BPP, dev->bufs[i].pitch,
 			dev->bufs[i].bo_handle, &dev->bufs[i].fb_id);
 		if (ret)
 			fatal("drmModeAddFB failed");
+		#endif
+		
+		ret = drmModeAddFB2(fd, dev->width, dev->height, DRM_FORMAT_UYVY, handles, pitches, offsets, &dev->bufs[i].fb_id, 0);
+//		ret = drmModeAddFB2(fd, dev->width, dev->height, DRM_FORMAT_XRGB8888, handles, pitches, offsets, &dev->bufs[i].fb_id, 0);		
+		if(ret) {
+			printf("drmModeAddFB2 return err %d\n",ret);
+			fatal("drmModeAddFB2 failed");			
+		}
 	}
+
+
 
 	/* Assume all buffers have the same pitch */
 	dev->pitch = dev->bufs[0].pitch;
@@ -244,8 +263,11 @@ void drm_setup_fb(int fd, struct drm_dev_t *dev, int map, int export)
 	getchar();
 
 	/* First buffer to DRM */
-	if (drmModeSetCrtc(fd, dev->crtc_id, dev->bufs[0].fb_id, 0, 0, &dev->conn_id, 1, &dev->mode))
+	if (ret = drmModeSetCrtc(fd, dev->crtc_id, dev->bufs[0].fb_id, 0, 0, &dev->conn_id, 1, &dev->mode)) {
+		printf("drmModeSetCrtc ret=%d", ret);
 		fatal("drmModeSetCrtc() failed");
+	}
+
 
 	/* First flip */
 	drmModePageFlip(fd, dev->crtc_id,
