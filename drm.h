@@ -27,7 +27,11 @@ struct drm_dev_t {
 	int v4l2_fd;
 	int drm_fd;
 
+	int v4l2_fd1;
+
+	drmModePlaneRes *plane_res;
 	struct drm_buffer_t bufs[BUFCOUNT];
+	struct drm_buffer_t plane1bufs[BUFCOUNT];	
 };
 
 inline static void fatal(char *str)

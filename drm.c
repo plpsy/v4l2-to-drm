@@ -224,16 +224,24 @@ void drm_setup_fb(int fd, struct drm_dev_t *dev, int map, int export)
 {
 	int i;
 	int ret;
+	uint32_t conn_id;
+	uint32_t crtc_id,x,y;
 
 	uint32_t handles[4] = {0}, pitches[4] = {0}, offsets[4] = {0};
 
+	printf("drm dev crtid=%d, connnecter=%d(%d,%d)\n", dev->crtc_id, dev->conn_id, dev->width, dev->height);
+
 	for (i = 0; i < BUFCOUNT; i++) {
 
-		drm_setup_buffer(fd, dev, dev->width, dev->height,
-				 &dev->bufs[i], map, export);
+		// drm_setup_buffer(fd, dev, dev->width, dev->height,
+		// 		 &dev->bufs[i], map, export);
+		// 摄像头的分辨率高于显示输出,申请更大缓存		 
+		drm_setup_buffer(fd, dev, 3840, 2160,
+				 &dev->bufs[i], map, export);	
 
+		memset(dev->bufs[i].buf, 20, 3840*2160*2);
 		handles[0] = dev->bufs[i].bo_handle;
-		pitches[0] = 3840;	
+		pitches[0] = 1600;	
 		offsets[0] = 0;
 		#if 0
 		ret = drmModeAddFB(fd, dev->width, dev->height,
@@ -251,13 +259,31 @@ void drm_setup_fb(int fd, struct drm_dev_t *dev, int map, int export)
 		}
 	}
 
-
-
 	/* Assume all buffers have the same pitch */
-	dev->pitch = dev->bufs[0].pitch;
+	dev->pitch = pitches[0];
 	printf("DRM: buffer pitch %d bytes\n", dev->pitch);
 
 	dev->saved_crtc = drmModeGetCrtc(fd, dev->crtc_id); /* must store crtc data */
+
+	// 申请plane的buffer
+	for (i = 0; i < BUFCOUNT; i++) {
+
+		// drm_setup_buffer(fd, dev, dev->width, dev->height,
+		// 		 &dev->bufs[i], map, export);
+		// 摄像头的分辨率高于显示输出,申请更大缓存		 
+		drm_setup_buffer(fd, dev, 1920, 1080,
+				 &dev->plane1bufs[i], map, export);	
+
+		handles[0] = dev->plane1bufs[i].bo_handle;
+		pitches[0] = 1920*2;	
+		offsets[0] = 0;
+		memset(dev->plane1bufs[i].buf, 20*i, 1920*1080*2);
+		ret = drmModeAddFB2(fd, 1920, 1080, DRM_FORMAT_UYVY, handles, pitches, offsets, &dev->plane1bufs[i].fb_id, 0);		
+		if(ret) {
+			printf("plane drmModeAddFB2 return err %d\n",ret);
+			fatal("plane drmModeAddFB2 failed");			
+		}
+	}
 
 	/* Stop before screwing up the monitor */
 	getchar();
@@ -268,6 +294,18 @@ void drm_setup_fb(int fd, struct drm_dev_t *dev, int map, int export)
 		fatal("drmModeSetCrtc() failed");
 	}
 
+	ret = drmSetClientCap(fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
+	if (ret) {
+		printf("failed to set client cap\n");
+	}
+	dev->plane_res = drmModeGetPlaneResources(fd);
+	printf("get plane count %d, plane_id %d\n", dev->plane_res->count_planes, dev->plane_res->planes[2]);
+
+	ret = drmModeSetPlane(fd, dev->plane_res->planes[0], dev->crtc_id, dev->plane1bufs[0].fb_id, 0,
+			0, 0, 800, 1280,
+			0, 0, (1920) << 16, (1080) << 16);
+	if(ret < 0)
+		printf("drmModeSetPlane err %d\n",ret);
 
 	/* First flip */
 	drmModePageFlip(fd, dev->crtc_id,
@@ -298,9 +336,25 @@ void drm_destroy(int fd, struct drm_dev_t *dev_head)
 			drmModeRmFB(fd, devp->bufs[i].fb_id);
 		}
 
+		for (i = 0; i < BUFCOUNT; i++) {
+			struct drm_mode_destroy_dumb dreq = { .handle = devp->plane1bufs[i].bo_handle };
+
+			if (devp->plane1bufs[i].buf)
+				munmap(devp->plane1bufs[i].buf, devp->plane1bufs[i].size);
+			if (devp->plane1bufs[i].dmabuf_fd >= 0)
+				close(devp->plane1bufs[i].dmabuf_fd);
+			drmIoctl(fd, DRM_IOCTL_MODE_DESTROY_DUMB, &dreq);
+			drmModeRmFB(fd, devp->plane1bufs[i].fb_id);
+		}
+
+		if (devp->plane_res) {
+			drmModeFreePlaneResources(devp->plane_res);
+		}
+
 		devp_tmp = devp;
 		devp = devp->next;
 		free(devp_tmp);
+
 	}
 
 	close(fd);

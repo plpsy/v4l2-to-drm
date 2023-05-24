@@ -23,12 +23,17 @@ static void page_flip_handler(int fd, unsigned int frame,
 	 * and grab the next one.
 	 */
 	if (next_buffer_index > 0) {
-		v4l2_queue_buffer(dev->v4l2_fd, curr_buffer_index, dev->bufs[curr_buffer_index].dmabuf_fd);
+		v4l2_queue_buffer(dev->v4l2_fd, curr_buffer_index, dev->plane1bufs[curr_buffer_index].dmabuf_fd);
 		curr_buffer_index = next_buffer_index;
 		next_buffer_index = -1;
 	}
 	drmModePageFlip(fd, dev->crtc_id, dev->bufs[curr_buffer_index].fb_id,
 			      DRM_MODE_PAGE_FLIP_EVENT, dev);
+	int	ret = drmModeSetPlane(dev->drm_fd, dev->plane_res->planes[0], dev->crtc_id, dev->plane1bufs[curr_buffer_index].fb_id, 0,
+		0, 0, 800, 1280,
+		0, 0, (1920) << 16, (1080) << 16);
+	if(ret < 0)
+		printf("drmModeSetPlane err %d\n",ret);	  
 }
 
 static void mainloop(int v4l2_fd, int drm_fd, struct drm_dev_t *dev)
@@ -103,13 +108,21 @@ int main(int argc, char *argv[])
 
 	printf("v4l2_path=%s\n", v4l2_path);
 
-	dev = dev_head;
-	drm_setup_fb(drm_fd, dev, 0, 1);
+	for (dev = dev_head; dev != NULL; dev = dev->next) {
+		if(dev->conn_id == 205) {
+			printf("select connector id:%d\n", dev->conn_id);
+			printf("\tencoder id:%d crtc id:%d\n", dev->enc_id, dev->crtc_id);
+			printf("\twidth:%d height:%d\n", dev->width, dev->height);			
+			break;
+		}
+	}
 
-	dmabufs[0] = dev->bufs[0].dmabuf_fd;
-	dmabufs[1] = dev->bufs[1].dmabuf_fd;
-	dmabufs[2] = dev->bufs[2].dmabuf_fd;
-	dmabufs[3] = dev->bufs[3].dmabuf_fd;
+	drm_setup_fb(drm_fd, dev, 1, 1);
+
+	dmabufs[0] = dev->plane1bufs[0].dmabuf_fd;
+	dmabufs[1] = dev->plane1bufs[1].dmabuf_fd;
+	dmabufs[2] = dev->plane1bufs[2].dmabuf_fd;
+	dmabufs[3] = dev->plane1bufs[3].dmabuf_fd;
 
 	v4l2_fd = v4l2_open(v4l2_path);
 	v4l2_init(v4l2_fd, dev->width, dev->height, dev->pitch);
