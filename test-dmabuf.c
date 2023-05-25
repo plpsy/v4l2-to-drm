@@ -23,17 +23,19 @@ static void page_flip_handler(int fd, unsigned int frame,
 	 * and grab the next one.
 	 */
 	if (next_buffer_index > 0) {
-		v4l2_queue_buffer(dev->v4l2_fd, curr_buffer_index, dev->plane1bufs[curr_buffer_index].dmabuf_fd);
+		v4l2_queue_buffer(dev->v4l2_fd, curr_buffer_index, dev->bufs[curr_buffer_index].dmabuf_fd);
 		curr_buffer_index = next_buffer_index;
 		next_buffer_index = -1;
+
+		// int ret = drmModeSetPlane(fd, dev->plane_res->planes[1], dev->crtc_id, dev->plane1bufs[curr_buffer_index].fb_id, 0,
+		// 		0, 0, 480, 270,
+		// 		0, 0, 1920 << 16, (1080) << 16);		
+		// if(ret < 0)
+		// 	printf("drmModeSetPlane err %d\n",ret);			
 	}
+
 	drmModePageFlip(fd, dev->crtc_id, dev->bufs[curr_buffer_index].fb_id,
 			      DRM_MODE_PAGE_FLIP_EVENT, dev);
-	int	ret = drmModeSetPlane(dev->drm_fd, dev->plane_res->planes[0], dev->crtc_id, dev->plane1bufs[curr_buffer_index].fb_id, 0,
-		0, 0, 800, 1280,
-		0, 0, (1920) << 16, (1080) << 16);
-	if(ret < 0)
-		printf("drmModeSetPlane err %d\n",ret);	  
 }
 
 static void mainloop(int v4l2_fd, int drm_fd, struct drm_dev_t *dev)
@@ -108,8 +110,19 @@ int main(int argc, char *argv[])
 
 	printf("v4l2_path=%s\n", v4l2_path);
 
+	/*****
+	connector id:208
+			encoder id:207 crtc id:119
+			width:800 height:1280
+	connector id:205
+			encoder id:204 crtc id:102
+			width:800 height:1280
+	connector id:195
+			encoder id:194 crtc id:85
+			width:1920 height:1080
+	***********/
 	for (dev = dev_head; dev != NULL; dev = dev->next) {
-		if(dev->conn_id == 205) {
+		if(dev->conn_id == 195) {
 			printf("select connector id:%d\n", dev->conn_id);
 			printf("\tencoder id:%d crtc id:%d\n", dev->enc_id, dev->crtc_id);
 			printf("\twidth:%d height:%d\n", dev->width, dev->height);			
@@ -119,10 +132,14 @@ int main(int argc, char *argv[])
 
 	drm_setup_fb(drm_fd, dev, 1, 1);
 
-	dmabufs[0] = dev->plane1bufs[0].dmabuf_fd;
-	dmabufs[1] = dev->plane1bufs[1].dmabuf_fd;
-	dmabufs[2] = dev->plane1bufs[2].dmabuf_fd;
-	dmabufs[3] = dev->plane1bufs[3].dmabuf_fd;
+	// dmabufs[0] = dev->plane1bufs[0].dmabuf_fd;
+	// dmabufs[1] = dev->plane1bufs[1].dmabuf_fd;
+	// dmabufs[2] = dev->plane1bufs[2].dmabuf_fd;
+	// dmabufs[3] = dev->plane1bufs[3].dmabuf_fd;
+	dmabufs[0] = dev->bufs[0].dmabuf_fd;
+	dmabufs[1] = dev->bufs[1].dmabuf_fd;
+	dmabufs[2] = dev->bufs[2].dmabuf_fd;
+	dmabufs[3] = dev->bufs[3].dmabuf_fd;	
 
 	v4l2_fd = v4l2_open(v4l2_path);
 	v4l2_init(v4l2_fd, dev->width, dev->height, dev->pitch);

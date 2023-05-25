@@ -236,12 +236,11 @@ void drm_setup_fb(int fd, struct drm_dev_t *dev, int map, int export)
 		// drm_setup_buffer(fd, dev, dev->width, dev->height,
 		// 		 &dev->bufs[i], map, export);
 		// 摄像头的分辨率高于显示输出,申请更大缓存		 
-		drm_setup_buffer(fd, dev, 3840, 2160,
-				 &dev->bufs[i], map, export);	
+		drm_setup_buffer(fd, dev, 1920, 1080,
+				 &dev->bufs[i], map, export);
 
-		memset(dev->bufs[i].buf, 20, 3840*2160*2);
 		handles[0] = dev->bufs[i].bo_handle;
-		pitches[0] = 1600;	
+		pitches[0] = dev->width*2;	
 		offsets[0] = 0;
 		#if 0
 		ret = drmModeAddFB(fd, dev->width, dev->height,
@@ -266,18 +265,12 @@ void drm_setup_fb(int fd, struct drm_dev_t *dev, int map, int export)
 	dev->saved_crtc = drmModeGetCrtc(fd, dev->crtc_id); /* must store crtc data */
 
 	// 申请plane的buffer
-	for (i = 0; i < BUFCOUNT; i++) {
-
-		// drm_setup_buffer(fd, dev, dev->width, dev->height,
-		// 		 &dev->bufs[i], map, export);
-		// 摄像头的分辨率高于显示输出,申请更大缓存		 
+	for (i = 0; i < BUFCOUNT; i++) {	 
 		drm_setup_buffer(fd, dev, 1920, 1080,
-				 &dev->plane1bufs[i], map, export);	
-
+				 &dev->plane1bufs[i], map, export);
 		handles[0] = dev->plane1bufs[i].bo_handle;
-		pitches[0] = 1920*2;	
+		pitches[0] = 1920*2;
 		offsets[0] = 0;
-		memset(dev->plane1bufs[i].buf, 20*i, 1920*1080*2);
 		ret = drmModeAddFB2(fd, 1920, 1080, DRM_FORMAT_UYVY, handles, pitches, offsets, &dev->plane1bufs[i].fb_id, 0);		
 		if(ret) {
 			printf("plane drmModeAddFB2 return err %d\n",ret);
@@ -301,11 +294,11 @@ void drm_setup_fb(int fd, struct drm_dev_t *dev, int map, int export)
 	dev->plane_res = drmModeGetPlaneResources(fd);
 	printf("get plane count %d, plane_id %d\n", dev->plane_res->count_planes, dev->plane_res->planes[2]);
 
-	ret = drmModeSetPlane(fd, dev->plane_res->planes[0], dev->crtc_id, dev->plane1bufs[0].fb_id, 0,
-			0, 0, 800, 1280,
-			0, 0, (1920) << 16, (1080) << 16);
-	if(ret < 0)
-		printf("drmModeSetPlane err %d\n",ret);
+	// ret = drmModeSetPlane(fd, dev->plane_res->planes[1], dev->crtc_id, dev->plane1bufs[0].fb_id, 0,
+	// 		0, 0, 480, 270,
+	// 		0, 0, 1920 << 16, (1080) << 16);			
+	// if(ret < 0)
+	// 	printf("drmModeSetPlane err %d\n",ret);
 
 	/* First flip */
 	drmModePageFlip(fd, dev->crtc_id,
