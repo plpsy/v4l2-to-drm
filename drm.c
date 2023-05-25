@@ -220,6 +220,47 @@ void drm_setup_dummy(int fd, struct drm_dev_t *dev, int map, int export)
 	printf("DRM: buffer pitch = %d bytes\n", dev->pitch);
 }
 
+void get_planes_property(int fd, drmModePlaneRes *pr)
+{
+	drmModeObjectPropertiesPtr props;
+	int i,j;
+	drmModePropertyPtr p;
+	
+	for(i = 0; i < pr->count_planes; i++) {
+		
+		printf("planes id %d\n",pr->planes[i]);
+		props = drmModeObjectGetProperties(fd, pr->planes[i],
+					DRM_MODE_OBJECT_PLANE);
+		if(props){		
+            for (j = 0;j < props->count_props; j++) {
+                p = drmModeGetProperty(fd, props->props[j]);
+                printf("get property ,name %s, id %d\n",p->name,p->prop_id);
+                drmModeFreeProperty(p);
+            }	
+            
+            
+            drmModeFreeObjectProperties(props);
+		}
+		printf("\n\n");
+	}
+	
+}
+
+void planesOnCrtc(int fd, uint32_t crtc_id) {
+	// 获取当前crtc_id对应的所有plane
+	drmModeObjectPropertiesPtr props = drmModeObjectGetProperties(fd, crtc_id, DRM_MODE_OBJECT_CRTC);
+	for (int i = 0; i < props->count_props; i++) {
+		drmModePropertyPtr prop = drmModeGetProperty(fd, props->props[i]);
+		printf("prop.name=%s, value=%lld\n", prop->name, props->prop_values[i]);
+
+		if (prop && prop->flags & DRM_MODE_PROP_OBJECT && prop->prop_id == DRM_MODE_OBJECT_PLANE) {
+			printf("plane id = %ld\n", props->prop_values[i]);
+		}
+		drmModeFreeProperty(prop);
+	}
+}
+
+
 void drm_setup_fb(int fd, struct drm_dev_t *dev, int map, int export)
 {
 	int i;
@@ -282,28 +323,26 @@ void drm_setup_fb(int fd, struct drm_dev_t *dev, int map, int export)
 	getchar();
 
 	/* First buffer to DRM */
-	if (ret = drmModeSetCrtc(fd, dev->crtc_id, dev->bufs[0].fb_id, 0, 0, &dev->conn_id, 1, &dev->mode)) {
-		printf("drmModeSetCrtc ret=%d", ret);
-		fatal("drmModeSetCrtc() failed");
-	}
+	// if (ret = drmModeSetCrtc(fd, dev->crtc_id, dev->plane1bufs[0].fb_id, 0, 0, &dev->conn_id, 1, &dev->mode)) {
+	// 	printf("drmModeSetCrtc ret=%d", ret);
+	// 	fatal("drmModeSetCrtc() failed");
+	// }
 
 	ret = drmSetClientCap(fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
 	if (ret) {
 		printf("failed to set client cap\n");
 	}
 	dev->plane_res = drmModeGetPlaneResources(fd);
-	printf("get plane count %d, plane_id %d\n", dev->plane_res->count_planes, dev->plane_res->planes[2]);
-
-	// ret = drmModeSetPlane(fd, dev->plane_res->planes[1], dev->crtc_id, dev->plane1bufs[0].fb_id, 0,
-	// 		0, 0, 480, 270,
-	// 		0, 0, 1920 << 16, (1080) << 16);			
-	// if(ret < 0)
-	// 	printf("drmModeSetPlane err %d\n",ret);
+	ret = drmModeSetPlane(fd, dev->plane_res->planes[1], dev->crtc_id, dev->plane1bufs[0].fb_id, 0,
+			0, 0, 480, 270,
+			0, 0, 1920 << 16, (1080) << 16);			
+	if(ret < 0)
+		printf("drmModeSetPlane err %d\n",ret);
 
 	/* First flip */
-	drmModePageFlip(fd, dev->crtc_id,
-                        dev->bufs[0].fb_id, DRM_MODE_PAGE_FLIP_EVENT,
-                        dev);
+	// drmModePageFlip(fd, dev->crtc_id,
+    //                     dev->plane1bufs[0].fb_id, DRM_MODE_PAGE_FLIP_EVENT,
+    //                     dev);
 }
 
 void drm_destroy(int fd, struct drm_dev_t *dev_head)
