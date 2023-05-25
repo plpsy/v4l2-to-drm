@@ -223,7 +223,7 @@ void drm_setup_dummy(int fd, struct drm_dev_t *dev, int map, int export)
 void get_planes_property(int fd, drmModePlaneRes *pr)
 {
 	drmModeObjectPropertiesPtr props;
-	int i,j;
+	uint32_t i,j;
 	drmModePropertyPtr p;
 	
 	for(i = 0; i < pr->count_planes; i++) {
@@ -246,27 +246,11 @@ void get_planes_property(int fd, drmModePlaneRes *pr)
 	
 }
 
-void planesOnCrtc(int fd, uint32_t crtc_id) {
-	// 获取当前crtc_id对应的所有plane
-	drmModeObjectPropertiesPtr props = drmModeObjectGetProperties(fd, crtc_id, DRM_MODE_OBJECT_CRTC);
-	for (int i = 0; i < props->count_props; i++) {
-		drmModePropertyPtr prop = drmModeGetProperty(fd, props->props[i]);
-		printf("prop.name=%s, value=%lld\n", prop->name, props->prop_values[i]);
-
-		if (prop && prop->flags & DRM_MODE_PROP_OBJECT && prop->prop_id == DRM_MODE_OBJECT_PLANE) {
-			printf("plane id = %ld\n", props->prop_values[i]);
-		}
-		drmModeFreeProperty(prop);
-	}
-}
-
 
 void drm_setup_fb(int fd, struct drm_dev_t *dev, int map, int export)
 {
 	int i;
 	int ret;
-	uint32_t conn_id;
-	uint32_t crtc_id,x,y;
 
 	uint32_t handles[4] = {0}, pitches[4] = {0}, offsets[4] = {0};
 

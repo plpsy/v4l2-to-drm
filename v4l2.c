@@ -19,11 +19,12 @@
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
 #define PCLEAR(x) memset(x, 0, sizeof(*x))
 
-struct buffer *buffers;
-static unsigned int n_buffers;
-static enum v4l2_memory memory_type;
+// 支持两个摄像头的缓存
+struct buffer *buffers[2];
+static unsigned int n_buffers[2];
+static enum v4l2_memory memory_type[2];
 
-void v4l2_queue_buffer(int fd, int index, int dmabuf_fd)
+void v4l2_queue_buffer(int fd, int index, int dmabuf_fd, int camera_id)
 {
 	struct v4l2_buffer buf;
 	struct v4l2_plane plane;
@@ -33,9 +34,9 @@ void v4l2_queue_buffer(int fd, int index, int dmabuf_fd)
 	plane.m.fd = dmabuf_fd;
 
 	buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-	buf.memory = memory_type;
+	buf.memory = memory_type[camera_id];
 	buf.index = index;
-	if (memory_type == V4L2_MEMORY_DMABUF) {
+	if (memory_type[camera_id] == V4L2_MEMORY_DMABUF) {
 		// buf.m.fd = dmabuf_fd;
 		buf.length = 1;
 		buf.m.planes = &plane;
@@ -45,7 +46,7 @@ void v4l2_queue_buffer(int fd, int index, int dmabuf_fd)
 		errno_print("VIDIOC_QBUF");
 }
 
-int v4l2_dequeue_buffer(int fd, struct v4l2_buffer *buf)
+int v4l2_dequeue_buffer(int fd, struct v4l2_buffer *buf, int camera_id)
 {	
 	struct v4l2_plane plane;
 
@@ -56,7 +57,7 @@ int v4l2_dequeue_buffer(int fd, struct v4l2_buffer *buf)
 	buf->m.planes = &plane;
 
 	buf->type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-	buf->memory = memory_type;
+	buf->memory = memory_type[camera_id];
 
 	if (-1 == xioctl(fd, VIDIOC_DQBUF, buf)) {
 		switch (errno) {
@@ -70,7 +71,7 @@ int v4l2_dequeue_buffer(int fd, struct v4l2_buffer *buf)
 		}
 	}
 
-	assert(buf->index < n_buffers);
+	assert(buf->index < n_buffers[camera_id]);
 	return 1;
 }
 
@@ -83,14 +84,14 @@ void v4l2_stop_capturing(int fd)
 		errno_print("VIDIOC_STREAMOFF");
 }
 
-void v4l2_start_capturing_dmabuf(int fd)
+void v4l2_start_capturing_dmabuf(int fd, int camera_id)
 {
 	enum v4l2_buf_type type;
 	unsigned int i;
 
 	/* One buffer held by DRM, the rest queued to video4linux */
-	for (i = 1; i < n_buffers; ++i)
-		v4l2_queue_buffer(fd, i, buffers[i].dmabuf_fd);
+	for (i = 1; i < n_buffers[camera_id]; ++i)
+		v4l2_queue_buffer(fd, i, buffers[camera_id][i].dmabuf_fd, camera_id);
 
 	type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 	if (-1 == xioctl(fd, VIDIOC_STREAMON, &type))
@@ -102,7 +103,7 @@ void v4l2_start_capturing_mmap(int fd)
 	enum v4l2_buf_type type;
 	unsigned int i;
 
-	for (i = 0; i < n_buffers; ++i) {
+	for (i = 0; i < n_buffers[0]; ++i) {
 		struct v4l2_buffer buf;
 
 		CLEAR(buf);
@@ -122,14 +123,18 @@ void v4l2_start_capturing_mmap(int fd)
 void v4l2_uninit_device(void)
 {
 	unsigned int i;
+	unsigned int camera_id;	
 
-	for (i = 0; i < n_buffers; ++i)
-		if (-1 == munmap(buffers[i].start, buffers[i].length))
-			errno_print("munmap");
-	free(buffers);
+	for(camera_id = 0; camera_id < 2; camera_id++){
+		for (i = 0; i < n_buffers[camera_id]; ++i)
+			if (-1 == munmap(buffers[camera_id][i].start, buffers[camera_id][i].length))
+				errno_print("munmap");
+		free(buffers[camera_id]);
+	}
+
 }
 
-void v4l2_init_dmabuf(int fd, int *dmabufs, int count)
+void v4l2_init_dmabuf(int fd, int *dmabufs, int count, int camera_id)
 {
 	struct v4l2_requestbuffers req;
 
@@ -138,7 +143,7 @@ void v4l2_init_dmabuf(int fd, int *dmabufs, int count)
 	req.count = count;
 	req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 	req.memory = V4L2_MEMORY_DMABUF;
-	memory_type = req.memory;
+	memory_type[camera_id] = req.memory;
 
 	if (-1 == xioctl(fd, VIDIOC_REQBUFS, &req)) {
 		if (EINVAL == errno) {
@@ -154,14 +159,14 @@ void v4l2_init_dmabuf(int fd, int *dmabufs, int count)
 		exit(EXIT_FAILURE);
 	}
 
-	buffers = calloc(req.count, sizeof(*buffers));
+	buffers[camera_id] = calloc(req.count, sizeof(*buffers[camera_id]));
 
-	if (!buffers) {
+	if (!buffers[camera_id]) {
 		fprintf(stderr, "Out of memory\n");
 		exit(EXIT_FAILURE);
 	}
 
-	for (n_buffers = 0; n_buffers < req.count; ++n_buffers) {
+	for (n_buffers[camera_id] = 0; n_buffers[camera_id] < req.count; ++n_buffers[camera_id]) {
 		struct v4l2_buffer buf;
 		struct v4l2_plane plane;
 
@@ -171,19 +176,19 @@ void v4l2_init_dmabuf(int fd, int *dmabufs, int count)
 
 		buf.type        = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 		buf.memory      = V4L2_MEMORY_DMABUF;
-		buf.index       = n_buffers;
+		buf.index       = n_buffers[camera_id];
 
 		buf.length		= 1;
 		buf.m.planes	= &plane;
 
 		if (-1 == xioctl(fd, VIDIOC_QUERYBUF, &buf))
 			errno_print("VIDIOC_QUERYBUF");
-		buffers[n_buffers].index = buf.index;
-		buffers[n_buffers].dmabuf_fd = dmabufs[n_buffers];
+		buffers[camera_id][n_buffers[camera_id]].index = buf.index;
+		buffers[camera_id][n_buffers[camera_id]].dmabuf_fd = dmabufs[n_buffers[camera_id]];
 	}
 }
 
-void v4l2_init_mmap(int fd, int count)
+void v4l2_init_mmap(int fd, int count, int camera_id)
 {
 	struct v4l2_requestbuffers req;
 
@@ -192,7 +197,7 @@ void v4l2_init_mmap(int fd, int count)
 	req.count = count;
 	req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	req.memory = V4L2_MEMORY_MMAP;
-	memory_type = req.memory;
+	memory_type[camera_id] = req.memory;
 
 	if (-1 == xioctl(fd, VIDIOC_REQBUFS, &req)) {
 		if (EINVAL == errno) {
@@ -208,34 +213,34 @@ void v4l2_init_mmap(int fd, int count)
 		exit(EXIT_FAILURE);
 	}
 
-	buffers = calloc(req.count, sizeof(*buffers));
+	buffers[camera_id] = calloc(req.count, sizeof(*buffers[camera_id]));
 
-	if (!buffers) {
+	if (!buffers[camera_id]) {
 		fprintf(stderr, "Out of memory\n");
 		exit(EXIT_FAILURE);
 	}
 
-	for (n_buffers = 0; n_buffers < req.count; ++n_buffers) {
+	for (n_buffers[camera_id] = 0; n_buffers[camera_id] < req.count; ++n_buffers[camera_id]) {
 		struct v4l2_buffer buf;
 
 		CLEAR(buf);
 
 		buf.type        = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 		buf.memory      = V4L2_MEMORY_MMAP;
-		buf.index       = n_buffers;
+		buf.index       = n_buffers[camera_id];
 
 		if (-1 == xioctl(fd, VIDIOC_QUERYBUF, &buf))
 			errno_print("VIDIOC_QUERYBUF");
 
-		buffers[n_buffers].length = buf.length;
-		buffers[n_buffers].start =
+		buffers[camera_id][n_buffers[camera_id]].length = buf.length;
+		buffers[camera_id][n_buffers[camera_id]].start =
 			mmap(NULL /* start anywhere */,
 					buf.length,
 					PROT_READ | PROT_WRITE /* required */,
 					MAP_SHARED /* recommended */,
 					fd, buf.m.offset);
 
-		if (MAP_FAILED == buffers[n_buffers].start)
+		if (MAP_FAILED == buffers[camera_id][n_buffers[camera_id]].start)
 			errno_print("mmap");
 	}
 }

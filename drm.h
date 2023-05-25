@@ -24,10 +24,8 @@ struct drm_dev_t {
 	drmModeCrtc *saved_crtc;
 	struct drm_dev_t *next;
 
-	int v4l2_fd;
+	int v4l2_fd[2];
 	int drm_fd;
-
-	int v4l2_fd1;
 
 	drmModePlaneRes *plane_res;
 	struct drm_buffer_t bufs[BUFCOUNT];

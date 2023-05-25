@@ -9,7 +9,7 @@
 #include "v4l2.h"
 
 static const char *dri_path = "/dev/dri/card0";
-static char v4l2_path[128];
+static char v4l2_path[2][128];
 static int next_buffer_index = -1;
 static int curr_buffer_index = 0;
 
@@ -35,10 +35,11 @@ static void page_flip_handler(int fd, unsigned int frame,
 }
 
 
-static void mainloop(int v4l2_fd, int drm_fd, struct drm_dev_t *dev)
+static void mainloop(int v4l2_fd[2], int drm_fd, struct drm_dev_t *dev)
 {
 	struct v4l2_buffer buf;
 	drmEventContext ev;
+	int camera_id = 0;
 	int r;
 
         memset(&ev, 0, sizeof ev);
@@ -48,12 +49,13 @@ static void mainloop(int v4l2_fd, int drm_fd, struct drm_dev_t *dev)
 
 	struct pollfd fds[] = {
 		{ .fd = STDIN_FILENO, .events = POLLIN },
-		{ .fd = v4l2_fd, .events = POLLIN },
+		{ .fd = v4l2_fd[0], .events = POLLIN },
+		{ .fd = v4l2_fd[1], .events = POLLIN },		
 		{ .fd = drm_fd, .events = POLLIN },
 	};
 
 	while (1) {
-		r = poll(fds, 3, 3000);
+		r = poll(fds, 4, 3000);
 		if (-1 == r) {
 			if (EINTR == errno)
 				continue;
@@ -71,35 +73,49 @@ static void mainloop(int v4l2_fd, int drm_fd, struct drm_dev_t *dev)
 			return;
 		}
 		if (fds[1].revents & POLLIN) {
+			camera_id = 0;
 			/* Video buffer captured, dequeue it
 			 * and store it for scanout.
 			 */
-			int dequeued = v4l2_dequeue_buffer(v4l2_fd, &buf);
+			int dequeued = v4l2_dequeue_buffer(v4l2_fd[camera_id], &buf, camera_id);
 			if (dequeued) {
 				next_buffer_index = buf.index;
 			}
 
 			static int aaa = 1;
 			if(aaa) {
-				int ret = drmModeSetPlane(drm_fd, dev->plane_res->planes[0], dev->crtc_id, dev->plane1bufs[next_buffer_index].fb_id, 0,
-						0, 0, 480, 270,
+				int ret = drmModeSetPlane(drm_fd, dev->plane_res->planes[0], dev->crtc_id, dev->bufs[next_buffer_index].fb_id, 0,
+						0, 0, 480*2, 270*2,
 						0, 0, 1920 << 16, (1080) << 16);		
 				if(ret < 0)
 					printf("drmModeSetPlane err %d\n",ret);
 				aaa = 0;
 			}
+			
+			v4l2_queue_buffer(v4l2_fd[camera_id], next_buffer_index, dev->bufs[next_buffer_index].dmabuf_fd, camera_id);		
+		
+		}
+		if (fds[2].revents & POLLIN) {
+			camera_id = 1;
+			/* Video buffer captured, dequeue it
+			 * and store it for scanout.
+			 */
+			int dequeued = v4l2_dequeue_buffer(v4l2_fd[camera_id], &buf, camera_id);
+			if (dequeued) {
+				next_buffer_index = buf.index;
+			}
 
 			int ret = drmModeSetPlane(drm_fd, dev->plane_res->planes[1], dev->crtc_id, dev->plane1bufs[next_buffer_index].fb_id, 0,
-					480*2, 270*2, 480, 270,
+					480*2, 270*2, 480*2, 270*2,
 					0, 0, 1920 << 16, (1080) << 16);		
 			if(ret < 0)
 				printf("drmModeSetPlane err %d\n",ret);		
 			
-			v4l2_queue_buffer(dev->v4l2_fd, next_buffer_index, dev->plane1bufs[next_buffer_index].dmabuf_fd);		
-		
+			v4l2_queue_buffer(v4l2_fd[camera_id], next_buffer_index, dev->plane1bufs[next_buffer_index].dmabuf_fd, camera_id);
 
 		}
-		if (fds[2].revents & POLLIN) {
+
+		if (fds[3].revents & POLLIN) {
 			drmHandleEvent(drm_fd, &ev);
 		}
 	}
@@ -109,7 +125,9 @@ int main(int argc, char *argv[])
 {
 	struct drm_dev_t *dev_head, *dev;
 	int v4l2_fd, drm_fd;
-	int dmabufs[BUFCOUNT];
+	int dmabufs[2][BUFCOUNT];
+	int i = 0;
+	int camera_id = 0;
 
 	drm_fd = drm_open(dri_path, 1, 1);
 	dev_head = drm_find_dev(drm_fd);
@@ -119,13 +137,15 @@ int main(int argc, char *argv[])
 		return EXIT_FAILURE;
 	}
 
-	if(argc >= 2) {
-		strcpy(v4l2_path, argv[1]);
+	if(argc >= 3) {
+		strcpy(v4l2_path[0], argv[1]);
+		strcpy(v4l2_path[1], argv[2]);		
 	} else {
-		strcpy(v4l2_path, "/dev/video22");
+		strcpy(v4l2_path[0], "/dev/video22");
+		strcpy(v4l2_path[1], "/dev/video31");		
 	}
 
-	printf("v4l2_path=%s\n", v4l2_path);
+	printf("v4l2_path[0]=%s, v4l2_path[1]=%s\n", v4l2_path[0], v4l2_path[1]);
 
 	/*****
 	connector id:208
@@ -149,25 +169,23 @@ int main(int argc, char *argv[])
 
 	drm_setup_fb(drm_fd, dev, 1, 1);
 
-	dmabufs[0] = dev->plane1bufs[0].dmabuf_fd;
-	dmabufs[1] = dev->plane1bufs[1].dmabuf_fd;
-	dmabufs[2] = dev->plane1bufs[2].dmabuf_fd;
-	dmabufs[3] = dev->plane1bufs[3].dmabuf_fd;
-	// dmabufs[0] = dev->bufs[0].dmabuf_fd;
-	// dmabufs[1] = dev->bufs[1].dmabuf_fd;
-	// dmabufs[2] = dev->bufs[2].dmabuf_fd;
-	// dmabufs[3] = dev->bufs[3].dmabuf_fd;	
+	for(i = 0; i < BUFCOUNT; i++) {
+		dmabufs[0][i] = dev->bufs[i].dmabuf_fd;		
+		dmabufs[1][i] = dev->plane1bufs[i].dmabuf_fd;
+	}
 
-	v4l2_fd = v4l2_open(v4l2_path);
-	//因摄像头和显示器不一定能设置位相同的模式，后面三个参数保留
-	v4l2_init(v4l2_fd, dev->width, dev->height, dev->pitch);
-	v4l2_init_dmabuf(v4l2_fd, dmabufs, BUFCOUNT);
-	v4l2_start_capturing_dmabuf(v4l2_fd);
+	for(i = 0; i < 2; i++){
+		camera_id = i;
+		v4l2_fd = v4l2_open(v4l2_path[i]);
+		//因摄像头和显示器不一定能设置位相同的模式，后面三个参数保留
+		v4l2_init(v4l2_fd, dev->width, dev->height, dev->pitch);
+		v4l2_init_dmabuf(v4l2_fd, dmabufs[camera_id], BUFCOUNT, camera_id);
+		v4l2_start_capturing_dmabuf(v4l2_fd, camera_id);
+		dev->v4l2_fd[camera_id] = v4l2_fd;
+	}
 
-	dev->v4l2_fd = v4l2_fd;
 	dev->drm_fd = drm_fd;
-
-	mainloop(v4l2_fd, drm_fd, dev);
+	mainloop(dev->v4l2_fd, drm_fd, dev);
 
 	drm_destroy(drm_fd, dev_head);
 	return 0;
