@@ -7,6 +7,7 @@
 #include "videodev2.h"
 #include "drm.h"
 #include "v4l2.h"
+#include <time.h>
 
 static const char *dri_path = "/dev/dri/card0";
 static char v4l2_path[2][128];
@@ -84,12 +85,19 @@ static void mainloop(int v4l2_fd[2], int drm_fd, struct drm_dev_t *dev)
 
 			static int aaa = 1;
 			if(aaa) {
-				int ret = drmModeSetPlane(drm_fd, dev->plane_res->planes[0], dev->crtc_id, dev->bufs[next_buffer_index].fb_id, 0,
+				// struct timespec time1, time2;
+				// clock_gettime(CLOCK_MONOTONIC, &time1);
+
+				int ret = drmModeSetPlane(drm_fd, dev->plane_res->planes[0], dev->crtc_id, dev->bufs[next_buffer_index].fb_id, DRM_MODE_PAGE_FLIP_ASYNC,
 						0, 0, 480*2, 270*2,
 						0, 0, 1920 << 16, (1080) << 16);		
 				if(ret < 0)
-					printf("drmModeSetPlane err %d\n",ret);
-				aaa = 0;
+					printf("drmModeSetPlane1 err %d\n",ret);
+
+				// clock_gettime(CLOCK_MONOTONIC, &time2);
+				// printf("ProcessTime1:%ld \n", time2.tv_nsec-time1.tv_nsec);
+
+				aaa = 1;
 			}
 			
 			v4l2_queue_buffer(v4l2_fd[camera_id], next_buffer_index, dev->bufs[next_buffer_index].dmabuf_fd, camera_id);		
@@ -105,11 +113,21 @@ static void mainloop(int v4l2_fd[2], int drm_fd, struct drm_dev_t *dev)
 				next_buffer_index = buf.index;
 			}
 
-			int ret = drmModeSetPlane(drm_fd, dev->plane_res->planes[1], dev->crtc_id, dev->plane1bufs[next_buffer_index].fb_id, 0,
-					480*2, 270*2, 480*2, 270*2,
-					0, 0, 1920 << 16, (1080) << 16);		
-			if(ret < 0)
-				printf("drmModeSetPlane err %d\n",ret);		
+			static int bbb = 1;
+			if(bbb) {
+				// struct timespec time1, time2;
+				// clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time1);
+
+				int ret = drmModeSetPlane(drm_fd, dev->plane_res->planes[1], dev->crtc_id, dev->plane1bufs[next_buffer_index].fb_id, DRM_MODE_PAGE_FLIP_ASYNC,
+						480*2, 270*2, 480*2, 270*2,
+						0, 0, 1920 << 16, (1080) << 16);
+				if(ret < 0)
+					printf("drmModeSetPlane2 err %d\n",ret);
+
+				// clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time2);
+				// printf("ProcessTime2:%ld \n", time2.tv_nsec-time1.tv_nsec);					
+				bbb = 1;	
+			}	
 			
 			v4l2_queue_buffer(v4l2_fd[camera_id], next_buffer_index, dev->plane1bufs[next_buffer_index].dmabuf_fd, camera_id);
 
