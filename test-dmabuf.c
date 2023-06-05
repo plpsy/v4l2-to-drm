@@ -89,16 +89,21 @@ static void mainloop(int v4l2_fd[2], int drm_fd, struct drm_dev_t *dev)
 				// clock_gettime(CLOCK_MONOTONIC, &time1);
 
 				int ret = drmModeSetPlane(drm_fd, dev->plane_res->planes[0], dev->crtc_id, dev->bufs[next_buffer_index].fb_id, DRM_MODE_PAGE_FLIP_ASYNC,
-						0, 0, 480*2, 270*2,
+						0, 0, 1920, 1080,
 						0, 0, 1920 << 16, (1080) << 16);		
 				if(ret < 0)
 					printf("drmModeSetPlane1 err %d\n",ret);
+
+				// int ret = drmModeSetCrtc(drm_fd, dev->crtc_id, dev->bufs[next_buffer_index].fb_id, 0, 0, &dev->conn_id, 1, &dev->mode);
+				// if (ret < 0) {
+				// 	printf("drmModeSetCrtc() failed, ret=%d\n", ret);
+				// }
 
 				// clock_gettime(CLOCK_MONOTONIC, &time2);
 				// printf("ProcessTime1:%ld \n", time2.tv_nsec-time1.tv_nsec);
 
 				aaa = 1;
-			}
+			} 
 			
 			v4l2_queue_buffer(v4l2_fd[camera_id], next_buffer_index, dev->bufs[next_buffer_index].dmabuf_fd, camera_id);		
 		

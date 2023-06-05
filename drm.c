@@ -319,12 +319,6 @@ void drm_setup_fb(int fd, struct drm_dev_t *dev, int map, int export)
 
 	dev->plane_res = drmModeGetPlaneResources(fd);
 
-	// ret = drmModeSetPlane(fd, dev->plane_res->planes[1], dev->crtc_id, dev->plane1bufs[0].fb_id, 0,
-	// 		0, 0, 480, 270,
-	// 		0, 0, 1920 << 16, (1080) << 16);			
-	// if(ret < 0)
-	// 	printf("drmModeSetPlane err %d\n",ret);
-
 	/* First flip */
 	// drmModePageFlip(fd, dev->crtc_id,
     //                     dev->plane1bufs[0].fb_id, DRM_MODE_PAGE_FLIP_EVENT,
